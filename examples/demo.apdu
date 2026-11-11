@@ -1,0 +1,27 @@
+apdustudio-script 1
+# A script for the demo card: start ApduStudio with --demo, then open this file.
+atr: 3B 88 80 01 00 00 00 00 77 81 80 00 7F
+
+step: Select the master file
+card: 00 A4 00 00 02 3F 00
+expect: 90 00
+
+step: Select the application
+card: 00 A4 04 00 07 A0 00 00 00 04 10 10
+expect: 6F ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 90 00
+
+step: Get challenge (8 random bytes)
+card: 00 84 00 00 08
+expect: ?? ?? ?? ?? ?? ?? ?? ?? 90 00
+
+step: Read record 1, SFI 1
+card: 00 B2 01 0C 00
+expect: 90 00
+
+step: Get data: ATC
+card: 80 CA 9F 36 00
+expect: 61 *
+
+step: Verify PIN (template: fill in the PIN)
+card: 00 20 00 80 04 <PIN, 4 bytes>
+expect: 90 00

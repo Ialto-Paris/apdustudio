@@ -1,0 +1,45 @@
+[package]
+name = "apdu-studio"
+version = "1.0.0"
+edition = "2021"
+description = "ApduStudio - PC/SC smart card test utility"
+authors = ["Ialto"]
+license = "Apache-2.0"
+repository = "https://github.com/Ialto-Paris/apdustudio"
+homepage = "https://ialto.com"
+
+[[bin]]
+name = "ApduStudio"
+path = "src/main.rs"
+
+# Scenarios run from a terminal or a script: a console program, so a terminal waits for it.
+[[bin]]
+name = "apdustudio-cli"
+path = "src/bin/apdustudio-cli.rs"
+
+[dependencies]
+# OpenGL (glow) instead of the default wgpu renderer: about 3 MB smaller. "links" opens a
+# clicked link (About's ialto.com) in the browser; without it egui only logs a warning.
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit", "links"] }
+egui = "0.36"
+pcsc = "2"
+rfd = "0.17"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Puts the icon into the Windows executable (build.rs; does nothing for other systems).
+[build-dependencies]
+winresource = "0.1"
+
+# Linux: a window on X11 and on Wayland (GLX and EGL), which eframe leaves out without its
+# default features.
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { version = "0.36", default-features = false, features = ["x11", "wayland"] }
+
+# Tuned for a small executable (about 5.7 MB instead of 14.7 MB).
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = true
+# Unwind (not abort): a job that fails on the reader thread is reported and the window stays open.
+panic = "unwind"

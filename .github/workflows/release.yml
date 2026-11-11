@@ -1,0 +1,57 @@
+# A version tag (vX.Y.Z) checks ApduStudio on Windows, Linux and macOS (ci.yml), builds it for
+# the three (build.yml, which also starts Linux on its distributions) and publishes the builds as a
+# GitHub release. The tag must match the version in Cargo.toml (which the app shows).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: the tag is the version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare the tag with Cargo.toml
+        run: |
+          cargo_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [ "v$cargo_version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME, but Cargo.toml says $cargo_version"
+            exit 1
+          fi
+
+  check:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      macos: true
+
+  build:
+    needs: check
+    uses: ./.github/workflows/build.yml
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Only the builds: the run also keeps the Linux start-up screenshots (screenshot-*).
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ApduStudio-*
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "ApduStudio ${GITHUB_REF_NAME#v}" \
+            --generate-notes

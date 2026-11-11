@@ -1,0 +1,68 @@
+# Checks (fmt, clippy, tests) on Windows and Linux, and macOS when asked. Nothing runs by itself:
+# the checks are done locally before pushing (scripts/check.sh), and GitHub's minutes are kept
+# for releases. This runs:
+#   - by hand: Actions > CI > Run workflow, choosing macOS and whether to build the executables
+#     too (build.yml, kept as the run's artifacts for 90 days);
+#   - for a release: release.yml calls it, with macOS, before building.
+# Tests use the fake reader; the live PC/SC tests are ignored, so no reader is needed.
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: Also check on macOS (its minutes count ten times)
+        type: boolean
+        default: false
+      build:
+        description: Then build the release executables and start Linux on its distributions
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      macos:
+        type: boolean
+        default: true
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fmt, clippy, test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: >-
+          ${{ inputs.macos
+              && fromJSON('["windows-latest", "ubuntu-latest", "macos-latest"]')
+              || fromJSON('["windows-latest", "ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_TERM_COLOR: always
+      # The About box names the commit a CI build was made from.
+      APDU_STUDIO_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: PC/SC library (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libpcsclite-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --locked
+
+  build:
+    name: release build
+    needs: check
+    if: github.event_name == 'workflow_dispatch' && inputs.build
+    uses: ./.github/workflows/build.yml

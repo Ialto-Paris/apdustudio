@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- ApduStudio, small sizes (16 to 32 px): heavier strokes, less margin. See icon.svg. -->
+  <rect x="0" y="0" width="512" height="512" rx="96" fill="#0F172A"/>
+  <path d="M 90.0 214.0 L 90.0 152.0 A 62.0 62.0 0 0 1 214.0 152.0 L 214.0 214.0 M 90.0 164.4 L 214.0 164.4" fill="none" stroke="#FFFFFF" stroke-width="52" stroke-linejoin="round" stroke-linecap="butt"/>
+  <path d="M 298.0 214.0 L 298.0 90.0 L 383.6 90.0 A 38.4 38.4 0 0 1 383.6 166.9 L 298.0 166.9" fill="none" stroke="#FFFFFF" stroke-width="52" stroke-linejoin="round" stroke-linecap="butt"/>
+  <path d="M 90.0 298.0 L 152.0 298.0 A 62.0 62.0 0 0 1 152.0 422.0 L 90.0 422.0 Z" fill="none" stroke="#F59E0B" stroke-width="52" stroke-linejoin="round" stroke-linecap="butt"/>
+  <path d="M 298.0 298.0 L 298.0 360.0 A 62.0 62.0 0 0 0 422.0 360.0 L 422.0 298.0" fill="none" stroke="#F59E0B" stroke-width="52" stroke-linejoin="round" stroke-linecap="butt"/>
+</svg>

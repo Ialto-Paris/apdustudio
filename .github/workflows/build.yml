@@ -1,0 +1,146 @@
+# Builds the release executables for Windows, Linux and macOS and keeps them as artifacts
+# (ApduStudio-Windows, ApduStudio-Linux, ApduStudio-macOS).
+# Release calls it for every version tag; CI calls it when run by hand with "build"; it can also
+# be run by hand alone (Actions > Build > Run workflow). Nothing runs it by itself.
+#
+# Linux is built in an AlmaLinux 8 container: an executable needs a glibc at least as new as the
+# one it was linked with, and the runner's own image moves to the newest Ubuntu (glibc 2.43 on
+# 26.04). AlmaLinux 8's glibc 2.28 lets it start on Debian 10, Ubuntu 20.04, RHEL 8 and
+# newer, and it is maintained until 2029 (the base of the manylinux_2_28 images); check-linux-abi.sh
+# refuses a build that needs more.
+name: Build
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  # The About box names the commit a CI build was made from.
+  APDU_STUDIO_COMMIT: ${{ github.sha }}
+
+jobs:
+  windows-macos:
+    name: build (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Release build
+        run: cargo build --release --locked
+      - name: Package
+        shell: bash
+        run: .github/scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ApduStudio-${{ runner.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  linux:
+    name: build (linux, AlmaLinux 8)
+    runs-on: ubuntu-latest
+    container: almalinux:8
+    timeout-minutes: 30
+    steps:
+      - name: Build tools and PC/SC library
+        run: |
+          dnf install -y dnf-plugins-core
+          dnf config-manager --set-enabled powertools
+          dnf install -y gcc make pkgconf-pkg-config pcsc-lite-devel git binutils tar gzip
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Release build
+        run: cargo build --release --locked
+      - name: Package (and check the glibc and libraries it needs)
+        shell: bash
+        run: .github/scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ApduStudio-${{ runner.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  # Starts the Linux build on the distributions it supports, each with only what a user would
+  # install: the X server (Xvfb here), OpenGL from Mesa (software rendering), the window's
+  # libraries and pcsc-lite's library. --demo needs no reader; --screenshot draws the window,
+  # saves it and closes. The screenshots are kept for a week. The packages listed here are the
+  # ones the README tells people to install.
+  linux-smoke:
+    name: start on ${{ matrix.name }}
+    needs: linux
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: AlmaLinux 8, slug: almalinux-8, image: "almalinux:8", family: dnf }
+          - { name: AlmaLinux 9, slug: almalinux-9, image: "almalinux:9", family: dnf }
+          - { name: Fedora, slug: fedora, image: "fedora:latest", family: dnf }
+          - { name: Debian 12, slug: debian-12, image: "debian:bookworm", family: apt }
+          - { name: Debian 13, slug: debian-13, image: "debian:trixie", family: apt }
+          - { name: Ubuntu 20.04, slug: ubuntu-20.04, image: "ubuntu:20.04", family: apt }
+          - { name: Ubuntu 22.04, slug: ubuntu-22.04, image: "ubuntu:22.04", family: apt }
+          - { name: Ubuntu 24.04, slug: ubuntu-24.04, image: "ubuntu:24.04", family: apt }
+          - { name: Ubuntu 26.04, slug: ubuntu-26.04, image: "ubuntu:26.04", family: apt }
+          - { name: openSUSE Leap, slug: opensuse-leap, image: "opensuse/leap:latest", family: zypper }
+          - { name: Arch Linux, slug: arch, image: "archlinux:latest", family: pacman }
+    steps:
+      - name: What a user installs (X server for the test, OpenGL, window, PC/SC)
+        run: |
+          case "${{ matrix.family }}" in
+            apt)
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                tar gzip xvfb \
+                libpcsclite1 libgl1 libegl1 libgl1-mesa-dri libxkbcommon-x11-0 \
+                libxcursor1 libxrandr2 libxi6 ;;
+            dnf)
+              dnf install -y tar gzip xorg-x11-server-Xvfb \
+                pcsc-lite-libs mesa-libGL mesa-libEGL mesa-dri-drivers libxkbcommon-x11 \
+                libXcursor libXrandr libXi ;;
+            zypper)
+              zypper --non-interactive install tar gzip xorg-x11-server-Xvfb \
+                libpcsclite1 Mesa-libGL1 Mesa-libEGL1 Mesa-dri libxkbcommon-x11-0 \
+                libXcursor1 libXrandr2 libXi6 ;;
+            pacman)
+              pacman -Syu --noconfirm tar gzip xorg-server-xvfb \
+                pcsclite mesa libxkbcommon-x11 libxcursor libxrandr libxi ;;
+          esac
+      - uses: actions/download-artifact@v4
+        with:
+          name: ApduStudio-Linux
+      - name: Start ApduStudio and capture its window
+        run: |
+          set -eu
+          tar -xzf ApduStudio-linux-x64.tar.gz
+          Xvfb :99 -screen 0 1280x800x24 -nolisten tcp > xvfb.log 2>&1 &
+          sleep 3
+          DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 XDG_CONFIG_HOME="$PWD/config" \
+            timeout 120 ./ApduStudio --demo --theme light --screenshot "shot-${{ matrix.slug }}.png"
+          test -s "shot-${{ matrix.slug }}.png"
+          ls -l "shot-${{ matrix.slug }}.png"
+      - name: Start apdustudio-cli (simulated reader)
+        run: |
+          set -eu
+          ./apdustudio-cli --version
+          ./apdustudio-cli readers --demo
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshot-${{ matrix.slug }}
+          path: shot-${{ matrix.slug }}.png
+          retention-days: 7
+          if-no-files-found: ignore
