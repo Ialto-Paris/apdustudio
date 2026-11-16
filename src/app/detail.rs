@@ -16,6 +16,8 @@ use crate::iso;
 
 /// Most characters of bytes shown in the first column (8 bytes); the rest is in its tooltip.
 const BYTES_SHOWN: usize = 3 * 8 - 1;
+/// How long a tooltip's Copy button says "Copied" after a click, in seconds.
+const COPIED_FOR: f64 = 1.5;
 
 impl ApduStudio {
     /// The detail panel's content for entry `e`.
@@ -72,10 +74,12 @@ impl ApduStudio {
                             format!("ATR of {whose}")
                         };
                         ui.label(RichText::new(title).strong());
-                        ui.add(
-                            egui::Label::new(RichText::new(hex(atr)).monospace().color(p.text))
+                        let whole = hex(atr);
+                        let shown = ui.add(
+                            egui::Label::new(RichText::new(&whole).monospace().color(p.text))
                                 .selectable(true),
                         );
+                        copy_tooltip(shown, &whole);
                         ui.add_space(2.0);
                         fields(ui, p, ("atr", e.id, k), &decode::atr(atr), p.text);
                     }
@@ -222,11 +226,8 @@ fn fields(ui: &mut Ui, p: &Palette, id: impl egui::AsIdSalt, fs: &[Field], bytes
 }
 
 fn row(ui: &mut Ui, p: &Palette, f: &Field, depth: usize, bytes: Color32) {
-    let shown = shorten(&f.bytes);
-    let b = ui.label(RichText::new(&shown).monospace().color(bytes));
-    if shown != f.bytes {
-        b.on_hover_text(&f.bytes);
-    }
+    let b = ui.label(RichText::new(shorten(&f.bytes)).monospace().color(bytes));
+    copy_tooltip(b, &f.bytes);
     ui.horizontal(|ui| {
         ui.add_space(depth as f32 * 14.0);
         ui.label(RichText::new(&f.name).strong())
@@ -254,6 +255,33 @@ fn meaning_color(p: &Palette, f: &Field) -> Color32 {
     } else {
         p.text
     }
+}
+
+/// Hovering `shown` (bytes, maybe shortened) opens a tooltip with the bytes whole and a Copy
+/// button, which copies them as shown there (hex, spaced). The button keeps the tooltip open
+/// while the pointer moves onto it. A row without bytes gets none.
+fn copy_tooltip(shown: egui::Response, bytes: &str) {
+    if bytes.is_empty() {
+        return;
+    }
+    let copied_at = shown.id.with("copied");
+    shown.on_hover_ui(|ui| {
+        ui.label(RichText::new(bytes).monospace());
+        let now = ui.input(|i| i.time);
+        let since = ui
+            .data(|d| d.get_temp::<f64>(copied_at))
+            .map(|t| now - t)
+            .filter(|s| (0.0..COPIED_FOR).contains(s));
+        let label = if since.is_some() { "Copied" } else { "Copy" };
+        if ui.button(label).clicked() {
+            ui.ctx().copy_text(bytes.to_string());
+            ui.data_mut(|d| d.insert_temp(copied_at, now));
+            ui.ctx().request_repaint_after_secs(COPIED_FOR as f32);
+        } else if let Some(s) = since {
+            // Back to "Copy" when the time is up, even if nothing else moves.
+            ui.ctx().request_repaint_after_secs((COPIED_FOR - s) as f32);
+        }
+    });
 }
 
 /// The first bytes of a long run, with "…".

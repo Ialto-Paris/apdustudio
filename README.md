@@ -112,7 +112,8 @@ What changes from one system to another:
   note with an ATR (Connected, Card state, Readers' state) to see the ATR decoded by ISO/IEC
   7816-3 and 7816-4 (interface bytes, historical bytes, TCK checked), and a contactless
   card's ATR as PC/SC part 3 builds it. Answer data that is BER-TLV (an FCI, an FCP, GET DATA
-  objects) is shown object by object, with the ISO/IEC 7816-4 names and codings. **Copy detail**
+  objects) is shown object by object, with the ISO/IEC 7816-4 names and codings. Hovering a
+  field's bytes (or an ATR) shows them whole, past the eight shown, with **Copy**. **Copy detail**
   copies what the detail decodes as text, one field per line with its clause. **Find** shows
   the entries holding a hex or text string, and **Problems only** keeps failures, status words
   other than 9000 and 61xx, warnings and errors.

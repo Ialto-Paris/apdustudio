@@ -1149,6 +1149,160 @@ fn the_window_draws_in_both_themes_with_a_full_session() {
     draw_at(&mut a, true, 3, MIN_WINDOW_SIZE);
 }
 
+/// The window drawn headless with the clock and the pointer in the test's hands. Widgets are
+/// found by the text they show, in the accessibility tree egui builds for screen readers.
+struct Driven {
+    ctx: egui::Context,
+    time: f64,
+    /// What was copied to the clipboard, in order.
+    copied: Vec<String>,
+    last: Option<egui::FullOutput>,
+}
+
+impl Driven {
+    /// Taller than the default, so the whole detail shows without scrolling.
+    const SIZE: [f32; 2] = [1400.0, 1000.0];
+
+    fn new() -> Self {
+        let ctx = egui::Context::default();
+        widgets::apply_style(&ctx);
+        ctx.enable_accesskit();
+        Self {
+            ctx,
+            time: 0.0,
+            copied: Vec::new(),
+            last: None,
+        }
+    }
+
+    /// One frame, `dt` seconds after the last one, with these input events.
+    fn frame(&mut self, a: &mut ApduStudio, dt: f64, events: Vec<egui::Event>) {
+        self.time += dt;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(Self::SIZE[0], Self::SIZE[1]),
+            )),
+            time: Some(self.time),
+            events,
+            ..Default::default()
+        };
+        let mut out = self.ctx.run_ui(input, |ui| a.frame(ui));
+        out.textures_delta.clear();
+        for c in &out.platform_output.commands {
+            if let egui::OutputCommand::CopyText(t) = c {
+                self.copied.push(t.clone());
+            }
+        }
+        self.last = Some(out);
+    }
+
+    /// Where widgets show exactly `text` on the last frame (a label's text or a button's): the
+    /// centre of each place, once (a label's text may have a node of its own, at the same place).
+    fn find(&self, text: &str) -> Vec<egui::Pos2> {
+        let Some(update) = self
+            .last
+            .as_ref()
+            .and_then(|o| o.platform_output.accesskit_update.as_ref())
+        else {
+            return Vec::new();
+        };
+        update
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.value().or(n.label()) == Some(text))
+            .filter_map(|(_, n)| n.bounds())
+            .map(|b| egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32))
+            .fold(Vec::new(), |mut places, p| {
+                if !places.contains(&p) {
+                    places.push(p);
+                }
+                places
+            })
+    }
+
+    fn move_to(&mut self, a: &mut ApduStudio, pos: egui::Pos2) {
+        self.frame(a, 0.05, vec![egui::Event::PointerMoved(pos)]);
+    }
+
+    /// Presses and releases the main button at `pos`, then draws the frame that shows the result.
+    fn click(&mut self, a: &mut ApduStudio, pos: egui::Pos2) {
+        for pressed in [true, false] {
+            let event = egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            self.frame(a, 0.05, vec![event]);
+        }
+        self.frame(a, 0.05, Vec::new());
+    }
+
+    /// Keeps the pointer still for `secs`, then draws one more frame.
+    fn wait(&mut self, a: &mut ApduStudio, secs: f64) {
+        self.frame(a, secs, Vec::new());
+        self.frame(a, 0.05, Vec::new());
+    }
+}
+
+/// Hovering bytes in the detail opens a tooltip with them whole and a Copy button, for short
+/// bytes as for shortened ones; the tooltip stays open while the pointer moves onto the button,
+/// and a click copies the bytes as the tooltip shows them.
+#[test]
+fn the_detail_s_bytes_have_a_tooltip_that_copies_them() {
+    let f = FakeSystem::with_card(READER, &ATR);
+    let mut a = connected(&f);
+    a.command_text = "00 A4 04 00 0A A0 00 00 04 04 01 25 09 01 01 00".into();
+    a.do_transmit();
+    a.settle();
+    let exchange = a
+        .transcript
+        .entries()
+        .rfind(|e| matches!(e.body, Body::Exchange { .. }))
+        .map(|e| e.id);
+    a.transcript.selected = exchange;
+    let mut d = Driven::new();
+    d.wait(&mut a, 0.05);
+    // The exchanges' own Copy button: the tooltip's is the other one.
+    let others = d.find("Copy");
+    let away = egui::pos2(Driven::SIZE[0] - 4.0, Driven::SIZE[1] - 4.0);
+    for (shown, whole) in [
+        ("A4", "A4"),
+        ("A0 00 00 04 04 01 25 09 …", "A0 00 00 04 04 01 25 09 01 01"),
+    ] {
+        let at = d.find(shown);
+        assert_eq!(at.len(), 1, "{shown:?} in the detail");
+        d.move_to(&mut a, at[0]);
+        d.wait(&mut a, 1.0);
+        let copy: Vec<_> = d
+            .find("Copy")
+            .into_iter()
+            .filter(|p| !others.contains(p))
+            .collect();
+        assert_eq!(copy.len(), 1, "a Copy button when hovering {shown:?}");
+        assert!(!d.find(whole).is_empty(), "{whole:?} in the tooltip");
+        d.move_to(&mut a, copy[0]);
+        d.click(&mut a, copy[0]);
+        assert_eq!(d.copied.last().map(String::as_str), Some(whole));
+        assert_eq!(d.find("Copied").len(), 1, "the button says it copied");
+        // The tooltip stays open under the pointer, and its button says Copy again.
+        d.wait(&mut a, 2.0);
+        assert!(d.find("Copied").is_empty(), "still Copied after 2 s");
+        assert_eq!(
+            d.find("Copy").len(),
+            others.len() + 1,
+            "the tooltip stays open"
+        );
+        // Moving away closes the tooltip.
+        d.move_to(&mut a, away);
+        d.wait(&mut a, 1.0);
+        assert_eq!(d.find("Copy"), others, "the tooltip closed");
+        assert!(d.find("Copied").is_empty());
+    }
+    assert_eq!(d.copied.len(), 2);
+}
+
 #[test]
 fn notes_with_an_atr_open_its_decoding_and_other_notes_open_nothing() {
     fn last_atrs(a: &ApduStudio) -> Vec<(String, Vec<u8>)> {
