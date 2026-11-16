@@ -37,9 +37,16 @@ None of them is signed:
   each with only the libraries of this list (not `pcscd`: the test uses the demo reader), under
   X11. Wayland, which needs `libEGL`, isn't tested yet.
 
-To publish a release, set the version in `Cargo.toml` (the app reads it from there), merge,
-then push the tag: `git tag v1.0.0 && git push origin v1.0.0`. The Release workflow refuses a
-tag that doesn't match it.
+To publish a release:
+
+1. Set the version in `Cargo.toml` (the app reads it from there), then run `cargo build` once: it
+   writes the version into `Cargo.lock`, which goes in the same commit. The checks and the
+   workflows build with `--locked`, so they refuse a `Cargo.lock` that isn't up to date.
+2. Add the version's section to [CHANGELOG.md](CHANGELOG.md), dated the day of the tag: it
+   becomes the release's notes. `scripts/check.sh` and the Release workflow refuse a version
+   without one.
+3. Merge, then push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The Release workflow
+   refuses a tag that doesn't match `Cargo.toml`.
 
 The window's title shows the version; **About...** (in the help, F1) also shows the build: the
 commit for an executable built by CI (`APDU_STUDIO_COMMIT`), "local build" otherwise. It names
@@ -348,7 +355,7 @@ target\release\ApduStudio.exe --demo examples\demo.apdu --theme dark --screensho
 Checks are run locally, before pushing; GitHub's CI minutes are kept for releases:
 
 ```sh
-scripts/check.sh                    # format, clippy and the tests, for this system
+scripts/check.sh                    # the version's notes, format, clippy and the tests, for this system
 scripts/check.sh --cross            # also clippy for the other systems' targets
 scripts/check.sh --cross --release  # and the release build
 ```
@@ -361,7 +368,7 @@ Nothing on GitHub runs by itself, neither for pull requests nor for pushes to `m
 
 | Workflow | When | What |
 |---|---|---|
-| `release.yml` | A version tag `vX.Y.Z` | The checks on Windows, Linux and macOS (`ci.yml`), the three builds (`build.yml`), then the release |
+| `release.yml` | A version tag `vX.Y.Z` | The checks on Windows, Linux and macOS (`ci.yml`), the three builds (`build.yml`), then the release, with the version's section of `CHANGELOG.md` as its notes |
 | `ci.yml` | By hand: Actions, CI, Run workflow | The checks on Windows and Linux; macOS and the builds if ticked |
 | `build.yml` | By hand: Actions, Build, Run workflow | The three builds, kept as the run's artifacts for 90 days |
 

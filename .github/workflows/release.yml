@@ -1,6 +1,8 @@
 # A version tag (vX.Y.Z) checks ApduStudio on Windows, Linux and macOS (ci.yml), builds it for
 # the three (build.yml, which also starts Linux on its distributions) and publishes the builds as a
-# GitHub release. The tag must match the version in Cargo.toml (which the app shows).
+# GitHub release. The tag must match the version in Cargo.toml (which the app shows), and
+# CHANGELOG.md must have a section for it: the release's notes. Both are checked first, before
+# any build.
 name: Release
 
 on:
@@ -23,6 +25,8 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME, but Cargo.toml says $cargo_version"
             exit 1
           fi
+      - name: The release's notes, from CHANGELOG.md
+        run: .github/scripts/changelog-section.sh "${GITHUB_REF_NAME#v}"
 
   check:
     needs: version
@@ -40,6 +44,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      # CHANGELOG.md and the script that reads it, at the tagged commit.
+      - uses: actions/checkout@v4
       # Only the builds: the run also keeps the Linux start-up screenshots (screenshot-*).
       - uses: actions/download-artifact@v4
         with:
@@ -51,7 +57,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -l dist
+          .github/scripts/changelog-section.sh "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "ApduStudio ${GITHUB_REF_NAME#v}" \
-            --generate-notes
+            --notes-file "$RUNNER_TEMP/notes.md"

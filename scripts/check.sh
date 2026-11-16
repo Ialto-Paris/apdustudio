@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The checks CI doesn't run by itself: run them before pushing. From the repository's root:
 #
-#   scripts/check.sh            format, clippy and tests, for this system
+#   scripts/check.sh            the version's notes in CHANGELOG.md, format, clippy and tests,
+#                               for this system
 #   scripts/check.sh --cross    also clippy for the other systems (Windows, Linux, macOS targets
 #                               that rustup has: rustup target add x86_64-unknown-linux-gnu
 #                               aarch64-apple-darwin x86_64-pc-windows-msvc)
@@ -24,6 +25,13 @@ done
 
 export CARGO_INCREMENTAL=0
 step() { printf '\n== %s\n' "$*"; }
+
+step "changelog"
+# The Release workflow publishes the version's section as the release's notes, and refuses a
+# tag without one.
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+.github/scripts/changelog-section.sh "$version" > /dev/null
+echo "CHANGELOG.md has a section for $version"
 
 step "format"
 cargo fmt --all -- --check

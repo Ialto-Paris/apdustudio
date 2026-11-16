@@ -1,6 +1,6 @@
 [package]
 name = "apdu-studio"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "ApduStudio - PC/SC smart card test utility"
 authors = ["Ialto"]
