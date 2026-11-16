@@ -45,8 +45,11 @@ To publish a release:
 2. Add the version's section to [CHANGELOG.md](CHANGELOG.md), dated the day of the tag: it
    becomes the release's notes. `scripts/check.sh` and the Release workflow refuse a version
    without one.
-3. Merge, then push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The Release workflow
-   refuses a tag that doesn't match `Cargo.toml`.
+3. Merge, then tag the merged `main` and push the tag with git:
+   `git switch main && git pull && git tag vX.Y.Z && git push origin vX.Y.Z`. The Release
+   workflow checks and builds, then creates the release, with the builds and the notes. It
+   refuses a tag that doesn't match `Cargo.toml`, or that already has a release: don't publish
+   one from GitHub's Releases page, which creates the tag along with an empty release.
 
 The window's title shows the version; **About...** (in the help, F1) also shows the build: the
 commit for an executable built by CI (`APDU_STUDIO_COMMIT`), "local build" otherwise. It names

@@ -1,8 +1,9 @@
 # A version tag (vX.Y.Z) checks ApduStudio on Windows, Linux and macOS (ci.yml), builds it for
 # the three (build.yml, which also starts Linux on its distributions) and publishes the builds as a
-# GitHub release. The tag must match the version in Cargo.toml (which the app shows), and
-# CHANGELOG.md must have a section for it: the release's notes. Both are checked first, before
-# any build.
+# GitHub release. The tag must match the version in Cargo.toml (which the app shows),
+# CHANGELOG.md must have a section for it (the release's notes), and the release must not exist
+# yet: push the tag with git, since publishing a release from GitHub's Releases page creates the
+# tag along with an empty release. All three are checked first, before any build.
 name: Release
 
 on:
@@ -27,6 +28,15 @@ jobs:
           fi
       - name: The release's notes, from CHANGELOG.md
         run: .github/scripts/changelog-section.sh "${GITHUB_REF_NAME#v}"
+      # The last job creates the release, and can't if one exists: tell now, not after the builds.
+      - name: No release yet for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::$GITHUB_REF_NAME already has a release, which this workflow creates once everything is built. Delete it, keeping the tag (gh release delete $GITHUB_REF_NAME), then re-run this workflow."
+            exit 1
+          fi
 
   check:
     needs: version
