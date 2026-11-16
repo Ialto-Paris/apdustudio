@@ -6,7 +6,7 @@
 //! answer (status word category and meaning), with hex dumps; a note's ATRs (ISO/IEC 7816-3,
 //! historical bytes per ISO/IEC 7816-4, contactless cards per PC/SC part 3). See `decode`.
 
-use egui::{Align, Color32, Layout, RichText, TextStyle, Ui};
+use egui::{Align, Color32, Layout, RichText, TextStyle, TextWrapMode, Ui};
 
 use super::transcript::{channel_label, clock, hex, Body, Channel, Entry, Verdict};
 use super::widgets::Palette;
@@ -16,6 +16,8 @@ use crate::iso;
 
 /// Most characters of bytes shown in the first column (8 bytes); the rest is in its tooltip.
 const BYTES_SHOWN: usize = 3 * 8 - 1;
+/// How long a tooltip's Copy button says "Copied" after a click, in seconds.
+const COPIED_FOR: f64 = 1.5;
 
 impl ApduStudio {
     /// The detail panel's content for entry `e`.
@@ -72,10 +74,12 @@ impl ApduStudio {
                             format!("ATR of {whose}")
                         };
                         ui.label(RichText::new(title).strong());
-                        ui.add(
-                            egui::Label::new(RichText::new(hex(atr)).monospace().color(p.text))
+                        let whole = hex(atr);
+                        let shown = ui.add(
+                            egui::Label::new(RichText::new(&whole).monospace().color(p.text))
                                 .selectable(true),
                         );
+                        copy_tooltip(shown, &whole);
                         ui.add_space(2.0);
                         fields(ui, p, ("atr", e.id, k), &decode::atr(atr), p.text);
                     }
@@ -222,11 +226,8 @@ fn fields(ui: &mut Ui, p: &Palette, id: impl egui::AsIdSalt, fs: &[Field], bytes
 }
 
 fn row(ui: &mut Ui, p: &Palette, f: &Field, depth: usize, bytes: Color32) {
-    let shown = shorten(&f.bytes);
-    let b = ui.label(RichText::new(&shown).monospace().color(bytes));
-    if shown != f.bytes {
-        b.on_hover_text(&f.bytes);
-    }
+    let b = ui.label(RichText::new(shorten(&f.bytes)).monospace().color(bytes));
+    copy_tooltip(b, &f.bytes);
     ui.horizontal(|ui| {
         ui.add_space(depth as f32 * 14.0);
         ui.label(RichText::new(&f.name).strong())
@@ -254,6 +255,53 @@ fn meaning_color(p: &Palette, f: &Field) -> Color32 {
     } else {
         p.text
     }
+}
+
+/// Hovering `shown` (bytes, maybe shortened) opens a tooltip with the bytes whole and a Copy
+/// button, which copies them as shown there (hex, spaced). The button keeps the tooltip open
+/// while the pointer moves onto it. A row without bytes gets none.
+fn copy_tooltip(shown: egui::Response, bytes: &str) {
+    if bytes.is_empty() {
+        return;
+    }
+    let copied_at = shown.id.with("copied");
+    shown.on_hover_ui(|ui| {
+        ui.label(RichText::new(bytes).monospace());
+        let now = ui.input(|i| i.time);
+        let since = ui
+            .data(|d| d.get_temp::<f64>(copied_at))
+            .map(|t| now - t)
+            .filter(|s| (0.0..COPIED_FOR).contains(s));
+        // As wide as its longer word from the start: the tooltip takes its width from its first
+        // frame, so a button that grew would wrap its word.
+        let width = ["Copy", "Copied"]
+            .map(|w| {
+                egui::WidgetText::from(w)
+                    .into_galley(
+                        ui,
+                        Some(TextWrapMode::Extend),
+                        f32::INFINITY,
+                        TextStyle::Button,
+                    )
+                    .size()
+                    .x
+            })
+            .into_iter()
+            .fold(0.0, f32::max)
+            + 2.0 * ui.spacing().button_padding.x;
+        let label = if since.is_some() { "Copied" } else { "Copy" };
+        let button = egui::Button::new(label)
+            .wrap_mode(TextWrapMode::Extend)
+            .min_size(egui::vec2(width, 0.0));
+        if ui.add(button).clicked() {
+            ui.ctx().copy_text(bytes.to_string());
+            ui.data_mut(|d| d.insert_temp(copied_at, now));
+            ui.ctx().request_repaint_after_secs(COPIED_FOR as f32);
+        } else if let Some(s) = since {
+            // Back to "Copy" when the time is up, even if nothing else moves.
+            ui.ctx().request_repaint_after_secs((COPIED_FOR - s) as f32);
+        }
+    });
 }
 
 /// The first bytes of a long run, with "…".
