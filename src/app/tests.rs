@@ -1197,9 +1197,9 @@ impl Driven {
         self.last = Some(out);
     }
 
-    /// Where widgets show exactly `text` on the last frame (a label's text or a button's): the
-    /// centre of each place, once (a label's text may have a node of its own, at the same place).
-    fn find(&self, text: &str) -> Vec<egui::Pos2> {
+    /// Where widgets show exactly `text` on the last frame (a label's text or a button's): each
+    /// place once (a label's text may have a node of its own, at the same place).
+    fn find(&self, text: &str) -> Vec<egui::Rect> {
         let Some(update) = self
             .last
             .as_ref()
@@ -1212,7 +1212,12 @@ impl Driven {
             .iter()
             .filter(|(_, n)| n.value().or(n.label()) == Some(text))
             .filter_map(|(_, n)| n.bounds())
-            .map(|b| egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32))
+            .map(|b| {
+                egui::Rect::from_min_max(
+                    egui::pos2(b.x0 as f32, b.y0 as f32),
+                    egui::pos2(b.x1 as f32, b.y1 as f32),
+                )
+            })
             .fold(Vec::new(), |mut places, p| {
                 if !places.contains(&p) {
                     places.push(p);
@@ -1273,7 +1278,7 @@ fn the_detail_s_bytes_have_a_tooltip_that_copies_them() {
     ] {
         let at = d.find(shown);
         assert_eq!(at.len(), 1, "{shown:?} in the detail");
-        d.move_to(&mut a, at[0]);
+        d.move_to(&mut a, at[0].center());
         d.wait(&mut a, 1.0);
         let copy: Vec<_> = d
             .find("Copy")
@@ -1282,10 +1287,12 @@ fn the_detail_s_bytes_have_a_tooltip_that_copies_them() {
             .collect();
         assert_eq!(copy.len(), 1, "a Copy button when hovering {shown:?}");
         assert!(!d.find(whole).is_empty(), "{whole:?} in the tooltip");
-        d.move_to(&mut a, copy[0]);
-        d.click(&mut a, copy[0]);
+        d.move_to(&mut a, copy[0].center());
+        d.click(&mut a, copy[0].center());
         assert_eq!(d.copied.last().map(String::as_str), Some(whole));
-        assert_eq!(d.find("Copied").len(), 1, "the button says it copied");
+        // The button says it copied, on one line: same place, same size (the tooltip is sized
+        // on its first frame, so a longer word would wrap).
+        assert_eq!(d.find("Copied"), copy, "Copied after copying {shown:?}");
         // The tooltip stays open under the pointer, and its button says Copy again.
         d.wait(&mut a, 2.0);
         assert!(d.find("Copied").is_empty(), "still Copied after 2 s");
